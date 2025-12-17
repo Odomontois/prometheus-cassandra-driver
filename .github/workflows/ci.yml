@@ -24,8 +24,64 @@ jobs:
 
       - name: slack
         uses: lazy-actions/slatify@master
-        if: failure() && github.ref == 'refs/heads/master'
+        # Disable Slack notifications until we figure out how to fix them
+        if: false 
         with:
           type: ${{ job.status }}
           job_name: Build
           url: ${{ secrets.SLACK_WEBHOOK }}
+
+  deploy-snapshot:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-java@v3
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: maven
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.PGP_SECRET }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Set SNAPSHOT version
+        run: mvn versions:set -DnewVersion=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout | sed 's/-SNAPSHOT//')-SNAPSHOT
+
+      - name: Publish SNAPSHOT to Maven Central
+        run: mvn -B deploy -DskipTests
+        env:
+          MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+
+  deploy-release:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-java@v3
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: maven
+          server-id: ossrh
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          gpg-private-key: ${{ secrets.PGP_SECRET }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Publish Release to Maven Central
+        run: mvn -B deploy -DskipTests
+        env:
+          MAVEN_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
