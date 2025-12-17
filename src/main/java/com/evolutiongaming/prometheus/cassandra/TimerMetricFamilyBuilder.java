@@ -2,15 +2,18 @@ package com.evolutiongaming.prometheus.cassandra;
 
 import com.codahale.metrics.Snapshot;
 import com.codahale.metrics.Timer;
+
 import io.prometheus.client.Collector;
+import io.prometheus.client.Collector.MetricFamilySamples;
 import io.prometheus.client.Collector.MetricFamilySamples.Sample;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
+import static com.evolutiongaming.prometheus.cassandra.Conversions.nsToSec;
 
 /* package */class TimerMetricFamilyBuilder {
-  private static final long NS_IN_SEC = TimeUnit.SECONDS.toNanos(1);
+  private static final String UNIT_SECONDS = "seconds";
 
   private final String name;
   private final String help;
@@ -18,7 +21,9 @@ import java.util.concurrent.TimeUnit;
 
   private final List<Sample> quantileSamples = new ArrayList<>();
   private final List<Sample> countSamples = new ArrayList<>();
+  private final List<Sample> sumSamples = new ArrayList<>();
   private final List<Sample> meanSamples = new ArrayList<>();
+
 
   TimerMetricFamilyBuilder(String name, String help, List<String> labelNames) {
     this.name = name;
@@ -28,9 +33,11 @@ import java.util.concurrent.TimeUnit;
 
   void addTimerMetricSample(List<String> labelValues, Timer timer) {
     long count = timer.getCount();
+
     Snapshot snapshot = timer.getSnapshot();
 
     addCountMetric(labelValues, count);
+    addSumMetric(labelValues, nsToSec(snapshot.getMean()) * count);
     addMeanMetric(labelValues, nsToSec(snapshot.getMean()));
 
     addQuantileMetric(labelValues, "0", nsToSec(snapshot.getMin()));
@@ -59,25 +66,34 @@ import java.util.concurrent.TimeUnit;
     ));
   }
 
+  private void addSumMetric(List<String> labelValues, double value) {
+    sumSamples.add(new Collector.MetricFamilySamples.Sample(
+        name + "_sum", labelNames, labelValues, value
+    ));
+  }
+
   private void addMeanMetric(List<String> labelValues, double value) {
     meanSamples.add(new Collector.MetricFamilySamples.Sample(
         name + "_mean", labelNames, labelValues, value
     ));
   }
 
-  private double nsToSec(double nanos) {
-    return nanos / NS_IN_SEC;
-  }
+  List<Collector.MetricFamilySamples> build() {
+    List<Sample> summarySamples = new ArrayList<>(quantileSamples);
+    summarySamples.addAll(countSamples);
+    summarySamples.addAll(sumSamples);
 
-  Collector.MetricFamilySamples build() {
-    List<Sample> samples = new ArrayList<>(quantileSamples);
-    samples.addAll(countSamples);
-    samples.addAll(meanSamples);
-    return new Collector.MetricFamilySamples(
+    MetricFamilySamples summary = new Collector.MetricFamilySamples(
         name,
-        Collector.Type.UNKNOWN,
+        UNIT_SECONDS,
+        Collector.Type.SUMMARY,
         help,
-        samples
+        summarySamples
     );
+
+    MetricFamilySamples mean = new Collector.MetricFamilySamples(
+            name + "_mean", Collector.Type.GAUGE, help, meanSamples);
+    
+    return Arrays.asList(summary, mean);
   }
 }

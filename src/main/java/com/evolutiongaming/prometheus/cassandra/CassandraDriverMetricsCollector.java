@@ -80,6 +80,7 @@ public class CassandraDriverMetricsCollector extends Collector {
         "Exposes the rate and latency for user requests",
         BASE_LABEL_NAMES
     );
+
     private final GaugeMetricFamily knownHosts = createGauge(
         "cassandra_driver_known_hosts",
         "The number of Cassandra hosts currently known by the driver"
@@ -181,7 +182,7 @@ public class CassandraDriverMetricsCollector extends Collector {
           addErrorsMetrics(clientName, metrics.getErrorMetrics());
         }
       }
-      mfs.add(requestTimeBuilder.build());
+      mfs.addAll(requestTimeBuilder.build());
       return mfs;
     }
 
